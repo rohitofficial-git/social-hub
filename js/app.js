@@ -321,6 +321,13 @@ const App = {
         try {
             const user = await Storage.getProfile(tid);
             if (!user) {
+                // If it's our own profile that's not found, session is stale - auto-fix
+                if (tid === currentUser.id) {
+                    console.warn('SocialHub: Stale session detected, logging out...');
+                    Storage.clearCurrentUser();
+                    window.location.reload();
+                    return;
+                }
                 view.innerHTML = '<div style="text-align:center; padding: 4rem 1rem;"><p>User not found.</p></div>';
                 return;
             }
