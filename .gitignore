@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.py
+!index.html
+!js/
+!style.css
+
+# Backups
+*.bak
+*.tmp
+
+# Editor
+.vscode/
+.idea/
+.net-env/
+
+# OS
+Thumbs.db
+.DS_Store
