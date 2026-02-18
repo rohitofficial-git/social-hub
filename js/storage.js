@@ -9,13 +9,24 @@ const Storage = {
             return await res.json();
         } catch (e) {
             console.error("API Call failed:", e);
-            return null;
+            return { success: false, msg: "Connection error" };
         }
     },
 
     // Profiles
     async getProfile(userId) {
-        return await this.callAPI("GET_PROFILE", "users", { id: userId });
+        const user = await this.callAPI("GET_PROFILE", "users", { id: userId });
+        return this.fixUserData(user);
+    },
+
+    // Fixes common Google Sheets data issues (strings vs arrays)
+    fixUserData(user) {
+        if (!user) return null;
+        if (typeof user.friends === 'string') {
+            try { user.friends = JSON.parse(user.friends); } catch (e) { user.friends = []; }
+        }
+        if (!user.friends) user.friends = [];
+        return user;
     },
 
     async getUserByUsername(username) {
@@ -24,43 +35,51 @@ const Storage = {
     },
 
     async getAllUsers() {
-        const res = await fetch(`${API_URL}?action=GET_USERS`);
-        if (!res.ok) return [];
-        return await res.json();
+        try {
+            const res = await fetch(`${API_URL}?action=GET_USERS`);
+            return await res.json() || [];
+        } catch (e) { return []; }
     },
 
     // Friend Requests
     async getFriendRequests(userId) {
-        const res = await fetch(`${API_URL}?action=GET_FRIEND_REQUESTS&id=${userId}`);
-        if (!res.ok) return [];
-        return await res.json();
+        try {
+            const res = await fetch(`${API_URL}?action=GET_FRIEND_REQUESTS&id=${userId}`);
+            return await res.json() || [];
+        } catch (e) { return []; }
     },
 
     async getSentRequests(userId) {
-        const res = await fetch(`${API_URL}?action=GET_SENT_REQUESTS&id=${userId}`);
-        if (!res.ok) return [];
-        return await res.json();
+        try {
+            const res = await fetch(`${API_URL}?action=GET_SENT_REQUESTS&id=${userId}`);
+            return await res.json() || [];
+        } catch (e) { return []; }
     },
 
     async sendFriendRequest(senderId, receiverId) {
         return await this.callAPI("ADD_FRIEND_REQUEST", "friend_requests", { sender_id: senderId, receiver_id: receiverId });
     },
 
-    async deleteFriendRequest(senderId, receiverId) {
-        return await this.callAPI("DELETE_FRIEND_REQUEST", "friend_requests", { sender_id: senderId, receiver_id: receiverId });
-    },
-
     // Posts
     async getPosts() {
-        const res = await fetch(`${API_URL}?action=GET_ALL_POSTS`);
-        if (!res.ok) return [];
-        return await res.json();
+        try {
+            const res = await fetch(`${API_URL}?action=GET_ALL_POSTS`);
+            const posts = await res.json() || [];
+            return posts.map(p => {
+                if (typeof p.liked_by === 'string') {
+                    try { p.liked_by = JSON.parse(p.liked_by); } catch (e) { p.liked_by = []; }
+                }
+                if (!p.liked_by) p.liked_by = [];
+                return p;
+            });
+        } catch (e) { return []; }
     },
 
     async getUserPosts(userId) {
-        const res = await fetch(`${API_URL}?action=GET_USER_POSTS&user_id=${userId}`);
-        if (!res.ok) return [];
-        return await res.json();
+        try {
+            const res = await fetch(`${API_URL}?action=GET_USER_POSTS&user_id=${userId}`);
+            return await res.json() || [];
+        } catch (e) { return []; }
     },
 
     async savePost(post) {
@@ -69,9 +88,10 @@ const Storage = {
 
     // Session
     getCurrentUser() {
-        let user = JSON.parse(localStorage.getItem('socialhub_user'));
-        if (user && typeof user.friends === 'string') user.friends = JSON.parse(user.friends);
-        return user || null;
+        try {
+            const user = JSON.parse(localStorage.getItem('socialhub_user'));
+            return this.fixUserData(user);
+        } catch (e) { return null; }
     },
 
     setCurrentUser(user) {

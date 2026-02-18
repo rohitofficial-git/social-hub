@@ -36,10 +36,13 @@ const App = {
 
     async refreshSession() {
         const user = Storage.getCurrentUser();
-        if (!user) return;
+        if (!user || !user.id) {
+            if (user) Auth.logout(); // Clear malformed old session
+            return;
+        }
         try {
             const freshUser = await Storage.getProfile(user.id);
-            if (freshUser) {
+            if (freshUser && freshUser.id) {
                 Storage.setCurrentUser(freshUser);
             }
         } catch (e) {
@@ -244,7 +247,10 @@ const App = {
 
     async showHome() {
         const user = Storage.getCurrentUser();
-        if (!user) return;
+        if (!user || !user.username) {
+            this.showAuth('login');
+            return;
+        }
         const view = document.getElementById('view-home');
         view.classList.remove('hidden');
 
