@@ -6,18 +6,6 @@ const App = {
             console.log('SocialHub: Initializing...');
             this.bindEvents();
 
-            // Listen for Auth changes (Magic Links)
-            supabaseClient.auth.onAuthStateChange(async (event, session) => {
-                if (event === 'SIGNED_IN' && session) {
-                    const user = await Storage.getProfile(session.user.id);
-                    if (user) {
-                        Storage.setCurrentUser(user);
-                        this.route();
-                        this.updateBadge();
-                    }
-                }
-            });
-
             // 1. Initial Route
             this.route();
 

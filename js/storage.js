@@ -1,161 +1,96 @@
 const Storage = {
-    // Profiles
-    async getProfile(userId) {
-        console.log('SocialHub: Fetching profile for', userId);
-        const { data, error } = await supabaseClient
-            .from('profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-        if (error) {
-            console.error('SocialHub: getProfile error:', error);
+    // Utility to call Google Apps Script
+    async callAPI(action, target, data = {}) {
+        try {
+            const response = await fetch(API_URL, {
+                method: "POST",
+                mode: "no-cors", // Crucial for Google Apps Script redirects
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action, target, data })
+            });
+            // Note: with no-cors, we can't see the response. 
+            // Better to use a trick: use a normal fetch and wait for redirect.
+
+            const realResponse = await fetch(API_URL, {
+                method: "POST",
+                body: JSON.stringify({ action, target, data })
+            });
+            return await realResponse.json();
+        } catch (e) {
+            console.error("API Call failed:", e);
             return null;
         }
-        console.log('SocialHub: Profile loaded:', data);
-        return data;
+    },
+
+    // Profiles
+    async getProfile(userId) {
+        return await this.callAPI("GET_PROFILE", "users", { id: userId });
     },
 
     async getUserByUsername(username) {
-        const { data, error } = await supabaseClient
-            .from('profiles')
-            .select('*')
-            .eq('username', username.toLowerCase())
-            .single();
-        if (error) return null;
-        return data;
+        const users = await this.getAllUsers();
+        return users.find(u => u.username === username.toLowerCase()) || null;
     },
 
     async saveUser(user) {
-        const { error } = await supabaseClient
-            .from('profiles')
-            .upsert(user);
-        if (error) throw error;
+        // This is handled by updateProfile in auth.js or LOGIN/SIGNUP
+        return await this.callAPI("UPDATE_USER", "users", user);
     },
 
     async getAllUsers() {
-        const { data, error } = await supabaseClient
-            .from('profiles')
-            .select('id, username, avatar');
-        if (error) return [];
-        return data;
+        const res = await fetch(`${API_URL}?action=GET_USERS`);
+        if (!res.ok) return [];
+        return await res.json();
     },
 
     async deleteUserProfile(userId) {
-        // 1. Delete all posts by this user
-        await supabaseClient.from('posts').delete().eq('user_id', userId);
-
-        // 2. Delete all friend requests sent or received
-        await supabaseClient.from('friend_requests').delete().or(`sender_id.eq.${userId},receiver_id.eq.${userId}`);
-
-        // 3. Delete the profile record
-        const { error } = await supabaseClient.from('profiles').delete().eq('id', userId);
-        if (error) throw error;
+        return await this.callAPI("DELETE_USER", "users", { id: userId });
     },
 
     // Friend Requests
     async getFriendRequests(userId) {
-        const { data, error } = await supabaseClient
-            .from('friend_requests')
-            .select('*, profiles:sender_id(username, avatar)')
-            .eq('receiver_id', userId)
-            .eq('status', 'pending');
-        if (error) return [];
-        return data;
+        const res = await fetch(`${API_URL}?action=GET_FRIEND_REQUESTS&id=${userId}`);
+        if (!res.ok) return [];
+        return await res.json();
     },
 
     async getSentRequests(userId) {
-        const { data, error } = await supabaseClient
-            .from('friend_requests')
-            .select('*')
-            .eq('sender_id', userId)
-            .eq('status', 'pending');
-        if (error) return [];
-        return data;
+        const res = await fetch(`${API_URL}?action=GET_SENT_REQUESTS&id=${userId}`);
+        if (!res.ok) return [];
+        return await res.json();
     },
 
     async sendFriendRequest(senderId, receiverId) {
-        const { error } = await supabaseClient
-            .from('friend_requests')
-            .insert({ sender_id: senderId, receiver_id: receiverId });
-        if (error) throw error;
+        return await this.callAPI("ADD_FRIEND_REQUEST", "friend_requests", { sender_id: senderId, receiver_id: receiverId });
     },
 
     async deleteFriendRequest(senderId, receiverId) {
-        const { error } = await supabaseClient
-            .from('friend_requests')
-            .delete()
-            .eq('sender_id', senderId)
-            .eq('receiver_id', receiverId);
-        if (error) throw error;
+        return await this.callAPI("DELETE_FRIEND_REQUEST", "friend_requests", { sender_id: senderId, receiver_id: receiverId });
     },
 
     // Posts
     async getPosts() {
-        const { data, error } = await supabaseClient
-            .from('posts')
-            .select('*, profiles(username, avatar)')
-            .order('created_at', { ascending: false })
-            .limit(50);
-        if (error) {
-            console.error('Fetch posts error:', error);
-            return [];
-        }
-        return data;
+        const res = await fetch(`${API_URL}?action=GET_ALL_POSTS`);
+        if (!res.ok) return [];
+        return await res.json();
     },
 
     async getUserPosts(userId) {
-        const { data, error } = await supabaseClient
-            .from('posts')
-            .select('*, profiles(username, avatar)')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
-        if (error) {
-            console.error('Fetch user posts error:', error);
-            return [];
-        }
-        return data;
+        const res = await fetch(`${API_URL}?action=GET_USER_POSTS&user_id=${userId}`);
+        if (!res.ok) return [];
+        return await res.json();
     },
 
     async savePost(post) {
-        // Handle image upload to Supabase Storage
-        if (post.image && post.image.startsWith('data:image')) {
-            const fileName = `${Date.now()}.jpg`;
-            const blob = await (await fetch(post.image)).blob();
-
-            const { data, error } = await supabaseClient.storage
-                .from('posts')
-                .upload(fileName, blob, { contentType: 'image/jpeg' });
-
-            if (error) throw error;
-
-            // Get public URL
-            const { data: { publicUrl } } = supabaseClient.storage
-                .from('posts')
-                .getPublicUrl(fileName);
-
-            post.image = publicUrl;
-        }
-
-        const { error } = await supabaseClient
-            .from('posts')
-            .insert(post);
-        if (error) throw error;
+        return await this.callAPI("ADD_POST", "posts", post);
     },
 
     async deletePost(postId) {
-        const { error } = await supabaseClient
-            .from('posts')
-            .delete()
-            .eq('id', postId);
-        if (error) throw error;
+        return await this.callAPI("DELETE_POST", "posts", { id: postId });
     },
 
     async updatePost(postId, updates) {
-        const { error } = await supabaseClient
-            .from('posts')
-            .update(updates)
-            .eq('id', postId);
-        if (error) throw error;
+        return await this.callAPI("UPDATE_POST", "posts", { id: postId, ...updates });
     },
 
     // Session
