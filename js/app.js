@@ -313,71 +313,55 @@ const App = {
         const tid = targetUserId || currentUser.id;
 
         try {
-            // If viewing own profile, use local data directly (avoids slow server call)
-            let user;
-            if (tid === currentUser.id) {
-                user = currentUser;
-            } else {
-                user = await Storage.getProfile(tid);
-            }
+            // Speed Fix: Use local data if viewing own profile
+            let user = (tid === currentUser.id) ? currentUser : await Storage.getProfile(tid);
 
             if (!user) {
-                // If it's our own profile that's not found, session is stale - auto-fix
-                if (tid === currentUser.id) {
-                    console.warn('SocialHub: Stale session detected, logging out...');
-                    Storage.clearCurrentUser();
-                    window.location.reload();
-                    return;
-                }
                 view.innerHTML = '<div style="text-align:center; padding: 4rem 1rem;"><p>User not found.</p></div>';
                 return;
             }
 
-            const allUserPosts = await Storage.getUserPosts(user.id);
-            const sentRequests = await Storage.getSentRequests(currentUser.id);
-            const receivedRequests = await Storage.getFriendRequests(currentUser.id);
-            const isRequestSent = sentRequests.some(r => r.receiver_id === tid);
-            const receivedRequest = receivedRequests.find(r => r.sender_id === tid);
+            // Load posts and requests quietly
+            const [allUserPosts, sentReqs, receivedReqs] = await Promise.all([
+                Storage.getUserPosts(user.id).catch(() => []),
+                Storage.getSentRequests(currentUser.id).catch(() => []),
+                Storage.getFriendRequests(currentUser.id).catch(() => [])
+            ]);
 
-            let currentSegment = this.lastProfileSegment || 'public';
-            this.lastProfileSegment = currentSegment;
+            const isRequestSent = sentReqs.some(r => r.receiver_id === tid);
+            const receivedRequest = receivedReqs.find(r => r.sender_id === tid);
 
             const renderProfileContent = (segment) => {
                 const isFriend = (currentUser.friends && currentUser.friends.includes(user.id)) || tid === currentUser.id;
-                const canSeePrivate = tid === currentUser.id || isFriend;
-                const filteredPosts = allUserPosts.filter(p => p.visibility === segment);
+                const filteredPosts = allUserPosts.filter(p => (p.visibility === segment) || (segment === 'public' && !p.visibility));
 
                 view.innerHTML = `
                     <div class="profile-header card">
                         <img src="${user.avatar}" class="profile-pic-large">
-                        <h2 class="profile-username" style="margin-bottom:0.25rem; font-weight:800">@${user.username}</h2>
+                        <h2 class="profile-username">@${user.username}</h2>
                         <div style="margin: 1rem 0;">
-                            ${tid === currentUser.id ? '<button class="btn btn-outline" id="btn-edit-profile">Edit Profile</button>' :
+                            ${tid === currentUser.id ?
+                        '<button class="btn btn-outline" id="btn-edit-profile">Edit Profile</button>' :
                         this.renderFriendButton(isFriend, isRequestSent, !!receivedRequest)}
                         </div>
                         <p class="profile-bio">${user.bio || 'No bio yet.'}</p>
                     </div>
                     <div class="feed-segments">
-                        <button class="segment-btn ${segment === 'public' ? 'active' : ''}" data-type="public">🌍 Public Posts</button>
-                        <button class="segment-btn ${segment === 'private' ? 'active' : ''}" data-type="private">👥 Friends Only</button>
+                        <button class="segment-btn ${segment === 'public' ? 'active' : ''}" data-type="public">🌍 Public</button>
+                        <button class="segment-btn ${segment === 'private' ? 'active' : ''}" data-type="private">👥 Private</button>
                     </div>
                     <div class="profile-feed"></div>
                 `;
 
                 const profileFeed = view.querySelector('.profile-feed');
-                if (segment === 'private' && !canSeePrivate) {
-                    profileFeed.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">Private posts are only visible to friends.</p></div>';
-                } else if (filteredPosts.length === 0) {
-                    profileFeed.innerHTML = `<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">No ${segment} posts yet.</p></div>`;
+                if (filteredPosts.length === 0) {
+                    profileFeed.innerHTML = `<div class="card" style="text-align:center; padding: 3rem 1rem; color:var(--text-muted)">No posts here.</div>`;
                 } else {
                     filteredPosts.forEach(post => profileFeed.appendChild(UI.renderPost(post)));
                 }
 
                 view.querySelectorAll('.segment-btn').forEach(btn => {
-                    btn.onclick = () => {
-                        this.lastProfileSegment = btn.dataset.type;
-                        renderProfileContent(btn.dataset.type);
-                    };
+                    btn.onclick = () => renderProfileContent(btn.dataset.type);
                 });
 
                 const editBtn = view.querySelector('#btn-edit-profile');
@@ -385,10 +369,10 @@ const App = {
                 this.bindFriendRequestAction(currentUser.id, user.id);
             };
 
-            renderProfileContent(currentSegment);
+            renderProfileContent('public');
         } catch (err) {
-            console.error('SocialHub: Profile load error:', err);
-            view.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">Could not connect to server. Check your internet connection.</p><button class="btn btn-primary" style="margin-top:1rem" onclick="App.showProfile()">Retry</button></div>';
+            console.error("Profile error:", err);
+            view.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p>Something went wrong. Tap below to try again.</p><button class="btn btn-primary" onclick="App.showProfile()" style="margin-top:1rem">Refresh</button></div>';
         }
     },
 
