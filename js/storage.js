@@ -2,20 +2,11 @@ const Storage = {
     // Utility to call Google Apps Script
     async callAPI(action, target, data = {}) {
         try {
-            const response = await fetch(API_URL, {
-                method: "POST",
-                mode: "no-cors", // Crucial for Google Apps Script redirects
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action, target, data })
-            });
-            // Note: with no-cors, we can't see the response. 
-            // Better to use a trick: use a normal fetch and wait for redirect.
-
-            const realResponse = await fetch(API_URL, {
+            const res = await fetch(API_URL, {
                 method: "POST",
                 body: JSON.stringify({ action, target, data })
             });
-            return await realResponse.json();
+            return await res.json();
         } catch (e) {
             console.error("API Call failed:", e);
             return null;
@@ -32,19 +23,10 @@ const Storage = {
         return users.find(u => u.username === username.toLowerCase()) || null;
     },
 
-    async saveUser(user) {
-        // This is handled by updateProfile in auth.js or LOGIN/SIGNUP
-        return await this.callAPI("UPDATE_USER", "users", user);
-    },
-
     async getAllUsers() {
         const res = await fetch(`${API_URL}?action=GET_USERS`);
         if (!res.ok) return [];
         return await res.json();
-    },
-
-    async deleteUserProfile(userId) {
-        return await this.callAPI("DELETE_USER", "users", { id: userId });
     },
 
     // Friend Requests
@@ -85,17 +67,11 @@ const Storage = {
         return await this.callAPI("ADD_POST", "posts", post);
     },
 
-    async deletePost(postId) {
-        return await this.callAPI("DELETE_POST", "posts", { id: postId });
-    },
-
-    async updatePost(postId, updates) {
-        return await this.callAPI("UPDATE_POST", "posts", { id: postId, ...updates });
-    },
-
     // Session
     getCurrentUser() {
-        return JSON.parse(localStorage.getItem('socialhub_user')) || null;
+        let user = JSON.parse(localStorage.getItem('socialhub_user'));
+        if (user && typeof user.friends === 'string') user.friends = JSON.parse(user.friends);
+        return user || null;
     },
 
     setCurrentUser(user) {

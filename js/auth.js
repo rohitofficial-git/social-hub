@@ -47,13 +47,18 @@ const Auth = {
         if (!currentUser) return { success: false };
 
         try {
+            let avatar = updates.avatar;
+            if (avatar && avatar.startsWith('data:image')) {
+                avatar = await UI.compressImage(avatar);
+            }
+
             const cleanUser = {
                 id: currentUser.id,
                 username: (updates.username ?? currentUser.username).toLowerCase(),
                 email: currentUser.email,
                 password: currentUser.password, // Keep existing password
                 bio: updates.bio ?? currentUser.bio,
-                avatar: updates.avatar ?? currentUser.avatar,
+                avatar: avatar ?? currentUser.avatar,
                 friends: currentUser.friends || "[]",
                 created_at: currentUser.created_at || new Date().toISOString()
             };
