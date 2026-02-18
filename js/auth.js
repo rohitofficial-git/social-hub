@@ -25,7 +25,7 @@ const Auth = {
                 created_at: new Date().toISOString()
             };
 
-            const res = await Storage.callAPI("SIGNUP", newUser);
+            const res = await Storage.callAPI("SIGNUP", newUser, "POST"); // Signup uses POST
             if (res && res.success) {
                 const sessionUser = { ...newUser };
                 delete sessionUser.password;
@@ -58,16 +58,16 @@ const Auth = {
                 id: currentUser.id,
                 username: (updates.username ?? currentUser.username).toLowerCase(),
                 email: currentUser.email,
-                password: currentUser.password || '',
                 avatar: avatar ?? currentUser.avatar,
                 bio: updates.bio ?? currentUser.bio,
                 friends: JSON.stringify(currentUser.friends || []),
                 created_at: currentUser.created_at || new Date().toISOString()
             };
 
-            const res = await Storage.callAPI("UPDATE_USER", cleanUser);
+            const res = await Storage.callAPI("UPDATE_USER", cleanUser, "POST"); // Updates use POST
             if (res && res.success) {
                 const sessionUser = { ...cleanUser, friends: currentUser.friends || [] };
+                delete sessionUser.password;
                 Storage.setCurrentUser(sessionUser);
                 return { success: true, user: sessionUser };
             }
@@ -75,17 +75,6 @@ const Auth = {
         } catch (error) {
             return { success: false, message: error.message };
         }
-    },
-
-    async deleteAccount() {
-        const currentUser = Storage.getCurrentUser();
-        if (!currentUser) return { success: false };
-        const res = await Storage.callAPI("DELETE_USER", { id: currentUser.id });
-        if (res && res.success) {
-            this.logout();
-            return { success: true };
-        }
-        return { success: false };
     },
 
     isLoggedIn() {

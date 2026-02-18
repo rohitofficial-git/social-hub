@@ -1,13 +1,20 @@
 const Storage = {
-    // Shared Cache to avoid repeated slow loads
     profileCache: {},
 
-    async callAPI(action, data = {}) {
+    // Hybrid API: Uses GET for small data, POST for large data (photos)
+    async callAPI(action, data = {}, method = "GET") {
         try {
-            const params = new URLSearchParams({ action, ...data });
-            const res = await fetch(`${API_URL}?${params.toString()}`);
-            const json = await res.json();
-            return json;
+            if (method === "GET") {
+                const params = new URLSearchParams({ action, ...data });
+                const res = await fetch(`${API_URL}?${params.toString()}`);
+                return await res.json();
+            } else {
+                const res = await fetch(`${API_URL}`, {
+                    method: "POST",
+                    body: JSON.stringify({ action, data })
+                });
+                return await res.json();
+            }
         } catch (e) {
             console.error("API Error:", e);
             return null;
@@ -32,44 +39,38 @@ const Storage = {
     },
 
     async getAllUsers() {
-        const res = await fetch(`${API_URL}?action=GET_USERS`);
-        return await res.json() || [];
+        return await this.callAPI("GET_USERS") || [];
     },
 
     async getPosts() {
-        try {
-            const res = await fetch(`${API_URL}?action=GET_ALL_POSTS`);
-            const posts = await res.json() || [];
-            return posts.map(p => {
-                if (typeof p.liked_by === 'string') {
-                    try { p.liked_by = JSON.parse(p.liked_by); } catch (e) { p.liked_by = []; }
-                }
-                if (!Array.isArray(p.liked_by)) p.liked_by = [];
-                return p;
-            });
-        } catch (e) { return []; }
+        const posts = await this.callAPI("GET_ALL_POSTS") || [];
+        return posts.map(p => {
+            if (typeof p.liked_by === 'string') {
+                try { p.liked_by = JSON.parse(p.liked_by); } catch (e) { p.liked_by = []; }
+            }
+            if (!Array.isArray(p.liked_by)) p.liked_by = [];
+            return p;
+        });
     },
 
     async getUserPosts(userId) {
-        const res = await this.callAPI("GET_USER_POSTS", { user_id: userId });
-        return Array.isArray(res) ? res : [];
+        return await this.callAPI("GET_USER_POSTS", { user_id: userId }) || [];
     },
 
-    async savePost(post) { return await this.callAPI("ADD_POST", post); },
+    async savePost(post) {
+        return await this.callAPI("ADD_POST", post, "POST"); // Photos MUST use POST
+    },
 
-    // Added back the missing friend request functions
     async getFriendRequests(userId) {
-        const res = await this.callAPI("GET_FRIEND_REQUESTS", { id: userId });
-        return Array.isArray(res) ? res : [];
+        return await this.callAPI("GET_FRIEND_REQUESTS", { id: userId }) || [];
     },
 
     async getSentRequests(userId) {
-        const res = await this.callAPI("GET_SENT_REQUESTS", { id: userId });
-        return Array.isArray(res) ? res : [];
+        return await this.callAPI("GET_SENT_REQUESTS", { id: userId }) || [];
     },
 
     async sendFriendRequest(senderId, receiverId) {
-        return await this.callAPI("ADD_FRIEND_REQUEST", { sender_id: senderId, receiver_id: receiverId });
+        return await this.callAPI("ADD_FRIEND_REQUEST", { sender_id: senderId, receiver_id: receiverId }, "POST");
     },
 
     getCurrentUser() {
