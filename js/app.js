@@ -529,23 +529,24 @@ const App = {
             };
             reader.readAsDataURL(file);
         };
-
         postBtn.onclick = async () => {
             postBtn.disabled = true;
             postBtn.textContent = 'Sharing...';
             const user = Storage.getCurrentUser();
-            const newPost = {
-                user_id: user.id,
-                username: user.username,
-                avatar: user.avatar,
-                image: selectedImage,
-                caption: view.querySelector('#post-caption').value,
-                likes: 0,
-                liked_by: [],
-                visibility: view.querySelector('#post-visibility').value,
-                created_at: new Date().toISOString()
-            };
             try {
+                const compressedImage = await UI.compressImage(selectedImage, 800, 800);
+                const newPost = {
+                    id: 'p_' + Date.now(),
+                    user_id: user.id,
+                    username: user.username,
+                    avatar: user.avatar,
+                    image: compressedImage,
+                    caption: view.querySelector('#post-caption').value,
+                    likes: 0,
+                    liked_by: JSON.stringify([]),
+                    visibility: view.querySelector('#post-visibility').value,
+                    created_at: new Date().toISOString()
+                };
                 await Storage.savePost(newPost);
                 this.navigate('home');
             } catch (err) {
