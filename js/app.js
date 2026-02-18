@@ -269,44 +269,60 @@ const App = {
 
         const feed = view.querySelector('.feed');
         const storiesContainer = view.querySelector('#home-stories');
+        if (!feed) return;
         this.showLoader(feed);
 
         try {
             // Safety Check: Ensure allUsers exists
-            const users = this.allUsers || [];
-            const otherUsers = users.filter(u => u && u.id !== user.id).slice(0, 10);
+            const users = Array.isArray(this.allUsers) ? this.allUsers : [];
+            const otherUsers = users.filter(u => u && u.id && String(u.id) !== String(user.id)).slice(0, 10);
 
-            if (otherUsers.length > 0) {
-                otherUsers.forEach(u => {
-                    const item = document.createElement('div');
-                    item.className = 'story-item';
-                    item.innerHTML = `
-                        <div class="story-ring"><img src="${u.avatar}"></div>
-                        <span class="story-name">${u.username}</span>
-                    `;
-                    item.onclick = () => this.navigate(`profile?id=${u.id}`);
-                    storiesContainer.appendChild(item);
-                });
-            } else {
-                storiesContainer.classList.add('hidden');
+            if (storiesContainer) {
+                storiesContainer.innerHTML = ''; // Reset before render
+                if (otherUsers.length > 0) {
+                    storiesContainer.classList.remove('hidden');
+                    otherUsers.forEach(u => {
+                        const item = document.createElement('div');
+                        item.className = 'story-item';
+                        item.innerHTML = `
+                            <div class="story-ring"><img src="${u.avatar || 'https://via.placeholder.com/50'}"></div>
+                            <span class="story-name">${u.username || 'User'}</span>
+                        `;
+                        item.onclick = () => this.navigate(`profile?id=${u.id}`);
+                        storiesContainer.appendChild(item);
+                    });
+                } else {
+                    storiesContainer.classList.add('hidden');
+                }
             }
 
-            const allPosts = await Storage.getPosts() || [];
-            const friends = user.friends || [];
-            const filteredPosts = allPosts.filter(p => p && (p.visibility === 'public' || friends.includes(p.user_id) || p.user_id === user.id));
+            const allPosts = await Storage.getPosts();
+            const postsArray = Array.isArray(allPosts) ? allPosts : [];
+            const friends = Array.isArray(user.friends) ? user.friends : [];
+            const filteredPosts = postsArray.filter(p => p && (p.visibility === 'public' || friends.includes(p.user_id) || String(p.user_id) === String(user.id)));
 
             feed.innerHTML = '';
             if (filteredPosts.length === 0) {
                 feed.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">No posts to show yet. Feel free to create one!</p></div>';
             } else {
                 filteredPosts.forEach(post => {
-                    const postEl = UI.renderPost(post);
-                    if (postEl) feed.appendChild(postEl);
+                    try {
+                        const postEl = UI.renderPost(post);
+                        if (postEl) feed.appendChild(postEl);
+                    } catch (renderErr) {
+                        console.error("SocialHub: Post render failed", post, renderErr);
+                    }
                 });
             }
         } catch (err) {
             console.error("SocialHub: Home load error:", err);
-            feed.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">Connection is a bit slow. Please wait a moment...</p><button class="btn btn-outline" style="margin-top:1rem" onclick="App.showHome()">Retry</button></div>';
+            feed.innerHTML = `
+                <div class="card" style="text-align:center; padding: 4rem 1rem;">
+                    <p style="color:var(--text-muted)">Could not load the feed. We might be experiencing a minor glitch.</p>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0.5rem">Error: ${err.message || 'Unknown'}</p>
+                    <button class="btn btn-primary" style="margin-top:1.5rem" onclick="App.showHome()">Retry</button>
+                </div>
+            `;
         }
     },
 

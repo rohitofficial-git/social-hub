@@ -7,21 +7,25 @@ const Storage = {
             if (method === "GET") {
                 const params = new URLSearchParams({ action, ...data });
                 const res = await fetch(`${API_URL}?${params.toString()}`);
-                return await res.json();
+                if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+                const json = await res.json();
+                return json;
             } else {
                 const res = await fetch(`${API_URL}`, {
                     method: "POST",
                     body: JSON.stringify({ action, data })
                 });
+                if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
                 return await res.json();
             }
         } catch (e) {
-            console.error("API Error:", e);
+            console.error(`Storage: API error (${action}):`, e);
             return null;
         }
     },
 
     async getProfile(userId) {
+        if (!userId) return null;
         if (this.profileCache[userId]) return this.profileCache[userId];
         const user = await this.callAPI("GET_PROFILE", { id: userId });
         const fixed = this.fixUserData(user);
@@ -30,7 +34,7 @@ const Storage = {
     },
 
     fixUserData(user) {
-        if (!user || !user.id) return null;
+        if (!user || typeof user !== 'object' || !user.id) return null;
         if (typeof user.friends === 'string') {
             try { user.friends = JSON.parse(user.friends); } catch (e) { user.friends = []; }
         }
@@ -39,11 +43,13 @@ const Storage = {
     },
 
     async getAllUsers() {
-        return await this.callAPI("GET_USERS") || [];
+        const res = await this.callAPI("GET_USERS");
+        return Array.isArray(res) ? res : [];
     },
 
     async getPosts() {
-        const posts = await this.callAPI("GET_ALL_POSTS") || [];
+        const res = await this.callAPI("GET_ALL_POSTS");
+        const posts = Array.isArray(res) ? res : [];
         return posts.map(p => {
             if (typeof p.liked_by === 'string') {
                 try { p.liked_by = JSON.parse(p.liked_by); } catch (e) { p.liked_by = []; }
@@ -54,19 +60,30 @@ const Storage = {
     },
 
     async getUserPosts(userId) {
-        return await this.callAPI("GET_USER_POSTS", { user_id: userId }) || [];
+        const res = await this.callAPI("GET_USER_POSTS", { user_id: userId });
+        return Array.isArray(res) ? res : [];
     },
 
     async savePost(post) {
-        return await this.callAPI("ADD_POST", post, "POST"); // Photos MUST use POST
+        return await this.callAPI("ADD_POST", post, "POST");
+    },
+
+    async deletePost(postId) {
+        return await this.callAPI("DELETE_POST", { id: postId }, "POST");
+    },
+
+    async updatePost(postId, updates) {
+        return await this.callAPI("UPDATE_POST", { id: postId, ...updates }, "POST");
     },
 
     async getFriendRequests(userId) {
-        return await this.callAPI("GET_FRIEND_REQUESTS", { id: userId }) || [];
+        const res = await this.callAPI("GET_FRIEND_REQUESTS", { id: userId });
+        return Array.isArray(res) ? res : [];
     },
 
     async getSentRequests(userId) {
-        return await this.callAPI("GET_SENT_REQUESTS", { id: userId }) || [];
+        const res = await this.callAPI("GET_SENT_REQUESTS", { id: userId });
+        return Array.isArray(res) ? res : [];
     },
 
     async sendFriendRequest(senderId, receiverId) {
@@ -75,11 +92,17 @@ const Storage = {
 
     getCurrentUser() {
         try {
-            const user = JSON.parse(localStorage.getItem('socialhub_user'));
+            const data = localStorage.getItem('socialhub_user');
+            if (!data) return null;
+            const user = JSON.parse(data);
             return this.fixUserData(user);
         } catch (e) { return null; }
     },
 
-    setCurrentUser(user) { localStorage.setItem('socialhub_user', JSON.stringify(user)); },
+    setCurrentUser(user) {
+        if (!user) return;
+        localStorage.setItem('socialhub_user', JSON.stringify(user));
+    },
+
     clearCurrentUser() { localStorage.removeItem('socialhub_user'); }
 };
