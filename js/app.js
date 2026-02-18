@@ -272,7 +272,10 @@ const App = {
         this.showLoader(feed);
 
         try {
-            const otherUsers = this.allUsers.filter(u => u.id !== user.id).slice(0, 10);
+            // Safety Check: Ensure allUsers exists
+            const users = this.allUsers || [];
+            const otherUsers = users.filter(u => u && u.id !== user.id).slice(0, 10);
+
             if (otherUsers.length > 0) {
                 otherUsers.forEach(u => {
                     const item = document.createElement('div');
@@ -288,18 +291,22 @@ const App = {
                 storiesContainer.classList.add('hidden');
             }
 
-            const allPosts = await Storage.getPosts();
+            const allPosts = await Storage.getPosts() || [];
             const friends = user.friends || [];
-            const filteredPosts = allPosts.filter(p => p.visibility === 'public' || friends.includes(p.user_id) || p.user_id === user.id);
+            const filteredPosts = allPosts.filter(p => p && (p.visibility === 'public' || friends.includes(p.user_id) || p.user_id === user.id));
 
             feed.innerHTML = '';
             if (filteredPosts.length === 0) {
-                feed.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">No posts to show yet.</p></div>';
+                feed.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">No posts to show yet. Feel free to create one!</p></div>';
             } else {
-                filteredPosts.forEach(post => feed.appendChild(UI.renderPost(post)));
+                filteredPosts.forEach(post => {
+                    const postEl = UI.renderPost(post);
+                    if (postEl) feed.appendChild(postEl);
+                });
             }
         } catch (err) {
-            feed.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">Syncing with Cloud...</p></div>';
+            console.error("SocialHub: Home load error:", err);
+            feed.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">Connection is a bit slow. Please wait a moment...</p><button class="btn btn-outline" style="margin-top:1rem" onclick="App.showHome()">Retry</button></div>';
         }
     },
 
