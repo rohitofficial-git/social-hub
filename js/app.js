@@ -313,7 +313,14 @@ const App = {
         const tid = targetUserId || currentUser.id;
 
         try {
-            const user = await Storage.getProfile(tid);
+            // If viewing own profile, use local data directly (avoids slow server call)
+            let user;
+            if (tid === currentUser.id) {
+                user = currentUser;
+            } else {
+                user = await Storage.getProfile(tid);
+            }
+
             if (!user) {
                 // If it's our own profile that's not found, session is stale - auto-fix
                 if (tid === currentUser.id) {
