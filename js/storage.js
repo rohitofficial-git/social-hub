@@ -1,12 +1,17 @@
 const Storage = {
     // Profiles
     async getProfile(userId) {
+        console.log('SocialHub: Fetching profile for', userId);
         const { data, error } = await supabaseClient
             .from('profiles')
             .select('*')
             .eq('id', userId)
             .single();
-        if (error) return null;
+        if (error) {
+            console.error('SocialHub: getProfile error:', error);
+            return null;
+        }
+        console.log('SocialHub: Profile loaded:', data);
         return data;
     },
 

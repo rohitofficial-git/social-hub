@@ -386,7 +386,8 @@ const App = {
 
             renderProfileContent(currentSegment);
         } catch (err) {
-            view.innerHTML = '<div style="text-align:center; padding: 4rem 1rem;"><p>Error loading profile.</p></div>';
+            console.error('SocialHub: Profile load error:', err);
+            view.innerHTML = '<div class="card" style="text-align:center; padding: 4rem 1rem;"><p style="color:var(--text-muted)">Could not connect to server. Check your internet connection.</p><button class="btn btn-primary" style="margin-top:1rem" onclick="App.showProfile()">Retry</button></div>';
         }
     },
 
