@@ -450,17 +450,35 @@ const App = {
         `;
         const input = view.querySelector('#user-search-input');
         const results = view.querySelector('#search-results');
+        const currentUser = Storage.getCurrentUser();
+
+        // Ensure users are fresh when searching
+        this.refreshUsers();
 
         input.oninput = () => {
-            const q = input.value.toLowerCase();
+            const q = input.value.toLowerCase().trim();
             results.innerHTML = '';
             if (!q) return;
-            this.allUsers.filter(u => u.username.includes(q)).forEach(user => {
+
+            const matches = this.allUsers.filter(u =>
+                u && u.username &&
+                u.username.toLowerCase().includes(q) &&
+                String(u.id) !== String(currentUser.id)
+            );
+
+            if (matches.length === 0) {
+                results.innerHTML = '<div class="card" style="text-align:center; padding: 2rem;"><p style="color:var(--text-muted)">No users found with that name.</p></div>';
+                return;
+            }
+
+            matches.forEach(user => {
                 const item = document.createElement('div');
                 item.className = 'user-item card';
                 item.innerHTML = `
-                    <img src="${user.avatar}" class="user-item-avatar">
-                    <div class="user-item-info"><div class="user-item-name">@${user.username}</div></div>
+                    <img src="${user.avatar || 'https://via.placeholder.com/50'}" class="user-item-avatar">
+                    <div class="user-item-info">
+                        <div class="user-item-name">@${user.username}</div>
+                    </div>
                 `;
                 item.onclick = () => this.navigate(`profile?id=${user.id}`);
                 results.appendChild(item);
