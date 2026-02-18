@@ -1,7 +1,7 @@
 const Auth = {
     async login(identifier, password) {
         try {
-            const res = await Storage.callAPI("LOGIN", "users", { email: identifier, password: password });
+            const res = await Storage.callAPI("LOGIN", { email: identifier, password: password });
             if (res && res.success) {
                 Storage.setCurrentUser(res.user);
                 return { success: true, user: res.user };
@@ -19,17 +19,19 @@ const Auth = {
                 username: username.toLowerCase(),
                 email: email,
                 password: password,
-                bio: '',
                 avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
+                bio: '',
                 friends: JSON.stringify([]),
                 created_at: new Date().toISOString()
             };
 
-            const res = await Storage.callAPI("SIGNUP", "users", newUser);
+            const res = await Storage.callAPI("SIGNUP", newUser);
             if (res && res.success) {
-                delete newUser.password; // Don't keep password in session
-                Storage.setCurrentUser(newUser);
-                return { success: true, user: newUser };
+                const sessionUser = { ...newUser };
+                delete sessionUser.password;
+                sessionUser.friends = [];
+                Storage.setCurrentUser(sessionUser);
+                return { success: true, user: sessionUser };
             }
             return { success: false, message: res ? res.msg : "Signup failed" };
         } catch (error) {
@@ -56,17 +58,18 @@ const Auth = {
                 id: currentUser.id,
                 username: (updates.username ?? currentUser.username).toLowerCase(),
                 email: currentUser.email,
-                password: currentUser.password, // Keep existing password
-                bio: updates.bio ?? currentUser.bio,
+                password: currentUser.password || '',
                 avatar: avatar ?? currentUser.avatar,
-                friends: currentUser.friends || "[]",
+                bio: updates.bio ?? currentUser.bio,
+                friends: JSON.stringify(currentUser.friends || []),
                 created_at: currentUser.created_at || new Date().toISOString()
             };
 
-            const res = await Storage.callAPI("UPDATE_USER", "users", cleanUser);
+            const res = await Storage.callAPI("UPDATE_USER", cleanUser);
             if (res && res.success) {
-                Storage.setCurrentUser(cleanUser);
-                return { success: true, user: cleanUser };
+                const sessionUser = { ...cleanUser, friends: currentUser.friends || [] };
+                Storage.setCurrentUser(sessionUser);
+                return { success: true, user: sessionUser };
             }
             return { success: false, message: res ? res.msg : "Update failed" };
         } catch (error) {
@@ -77,7 +80,7 @@ const Auth = {
     async deleteAccount() {
         const currentUser = Storage.getCurrentUser();
         if (!currentUser) return { success: false };
-        const res = await Storage.callAPI("DELETE_USER", "users", { id: currentUser.id });
+        const res = await Storage.callAPI("DELETE_USER", { id: currentUser.id });
         if (res && res.success) {
             this.logout();
             return { success: true };

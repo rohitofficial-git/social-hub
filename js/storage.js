@@ -1,11 +1,9 @@
 const Storage = {
-    // Utility to call Google Apps Script
-    async callAPI(action, target, data = {}) {
+    // Utility to call Google Apps Script via GET (avoids CORS issues)
+    async callAPI(action, data = {}) {
         try {
-            const res = await fetch(API_URL, {
-                method: "POST",
-                body: JSON.stringify({ action, target, data })
-            });
+            const params = new URLSearchParams({ action, ...data });
+            const res = await fetch(`${API_URL}?${params.toString()}`);
             return await res.json();
         } catch (e) {
             console.error("API Call failed:", e);
@@ -15,17 +13,16 @@ const Storage = {
 
     // Profiles
     async getProfile(userId) {
-        const user = await this.callAPI("GET_PROFILE", "users", { id: userId });
+        const user = await this.callAPI("GET_PROFILE", { id: userId });
         return this.fixUserData(user);
     },
 
-    // Fixes common Google Sheets data issues (strings vs arrays)
     fixUserData(user) {
-        if (!user) return null;
+        if (!user || !user.id) return null;
         if (typeof user.friends === 'string') {
             try { user.friends = JSON.parse(user.friends); } catch (e) { user.friends = []; }
         }
-        if (!user.friends) user.friends = [];
+        if (!Array.isArray(user.friends)) user.friends = [];
         return user;
     },
 
@@ -57,7 +54,7 @@ const Storage = {
     },
 
     async sendFriendRequest(senderId, receiverId) {
-        return await this.callAPI("ADD_FRIEND_REQUEST", "friend_requests", { sender_id: senderId, receiver_id: receiverId });
+        return await this.callAPI("ADD_FRIEND_REQUEST", { sender_id: senderId, receiver_id: receiverId });
     },
 
     // Posts
@@ -69,7 +66,7 @@ const Storage = {
                 if (typeof p.liked_by === 'string') {
                     try { p.liked_by = JSON.parse(p.liked_by); } catch (e) { p.liked_by = []; }
                 }
-                if (!p.liked_by) p.liked_by = [];
+                if (!Array.isArray(p.liked_by)) p.liked_by = [];
                 return p;
             });
         } catch (e) { return []; }
@@ -83,7 +80,7 @@ const Storage = {
     },
 
     async savePost(post) {
-        return await this.callAPI("ADD_POST", "posts", post);
+        return await this.callAPI("ADD_POST", post);
     },
 
     // Session
