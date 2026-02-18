@@ -76,6 +76,7 @@ const Storage = {
         return await this.callAPI("UPDATE_POST", { id: postId, ...updates }, "POST");
     },
 
+    // --- Friend System ---
     async getFriendRequests(userId) {
         const res = await this.callAPI("GET_FRIEND_REQUESTS", { id: userId });
         return Array.isArray(res) ? res : [];
@@ -88,6 +89,18 @@ const Storage = {
 
     async sendFriendRequest(senderId, receiverId) {
         return await this.callAPI("ADD_FRIEND_REQUEST", { sender_id: senderId, receiver_id: receiverId }, "POST");
+    },
+
+    async acceptFriendRequest(currentUserId, targetUserId) {
+        return await this.callAPI("ACCEPT_FRIEND_REQUEST", { user_id: currentUserId, friend_id: targetUserId }, "POST");
+    },
+
+    async deleteFriendRequest(senderId, receiverId) {
+        return await this.callAPI("DELETE_FRIEND_REQUEST", { sender_id: senderId, receiver_id: receiverId }, "POST");
+    },
+
+    async removeFriend(currentUserId, targetUserId) {
+        return await this.callAPI("REMOVE_FRIEND", { user_id: currentUserId, friend_id: targetUserId }, "POST");
     },
 
     getCurrentUser() {
