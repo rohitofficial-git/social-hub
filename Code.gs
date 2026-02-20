@@ -13,7 +13,11 @@ function doGet(e) { return handleRequest(e); }
 function doPost(e) { return handleRequest(e); }
 
 function handleRequest(e) {
+  const lock = LockService.getScriptLock();
   try {
+    // 1. Wait for up to 30 seconds for the lock
+    lock.waitLock(30000);
+
     let params;
     if (e.postData && e.postData.contents) {
       const payload = JSON.parse(e.postData.contents);
@@ -25,72 +29,98 @@ function handleRequest(e) {
     const action = params.action;
     const db = new Database();
 
+    let responseData;
     switch (action) {
       // --- AUTH ---
       case "LOGIN":
-        return res(db.login(params.email, params.password));
+        responseData = db.login(params.email, params.password);
+        break;
       case "SIGNUP":
-        return res(db.signup(params));
+        responseData = db.signup(params);
+        break;
       case "UPDATE_USER":
-        return res(db.updateUser(params));
+        responseData = db.updateUser(params);
+        break;
       case "GET_PROFILE":
-        return res(db.getProfile(params.id));
+        responseData = db.getProfile(params.id);
+        break;
       case "GET_USERS":
-        return res(db.getRows(CONFIG.SHEETS.USERS).map(u => { delete u.password; return u; }));
+        responseData = db.getRows(CONFIG.SHEETS.USERS).map(u => { delete u.password; return u; });
+        break;
 
-      // --- MEGA SYNC (Flash Fast Efficiency) ---
+      // --- MEGA SYNC ---
       case "MEGA_SYNC":
-        return res({
+        responseData = {
           posts: db.getPosts().slice(0, 50), 
           users: db.getRows(CONFIG.SHEETS.USERS).map(u => ({ id: u.id, username: u.username, avatar: u.avatar })),
           requests: params.user_id ? db.getFriendRequests(params.user_id) : [],
           notifications: params.user_id ? db.getNotifications(params.user_id) : [],
           server_time: new Date().toISOString()
-        });
+        };
+        break;
 
       // --- POSTS ---
       case "GET_ALL_POSTS":
-        return res(db.getPosts());
+        responseData = db.getPosts();
+        break;
       case "GET_USER_POSTS":
-        return res(db.getUserPosts(params.user_id));
+        responseData = db.getUserPosts(params.user_id);
+        break;
       case "ADD_POST":
-        return res(db.addRow(CONFIG.SHEETS.POSTS, params));
+        responseData = db.addRow(CONFIG.SHEETS.POSTS, params);
+        break;
       case "DELETE_POST":
-        return res(db.deleteRow(CONFIG.SHEETS.POSTS, "id", params.id));
+        responseData = db.deleteRow(CONFIG.SHEETS.POSTS, "id", params.id);
+        break;
       case "UPDATE_POST":
-        return res(db.updateRow(CONFIG.SHEETS.POSTS, "id", params.id, params));
+        responseData = db.updateRow(CONFIG.SHEETS.POSTS, "id", params.id, params);
+        break;
 
       // --- FRIENDS ---
       case "ADD_FRIEND_REQUEST":
-        return res(db.addFriendRequest(params.sender_id, params.receiver_id));
+        responseData = db.addFriendRequest(params.sender_id, params.receiver_id);
+        break;
       case "ACCEPT_FRIEND_REQUEST":
-        return res(db.acceptFriendRequest(params.user_id, params.friend_id));
+        responseData = db.acceptFriendRequest(params.user_id, params.friend_id);
+        break;
       case "GET_FRIEND_REQUESTS":
-        return res(db.getFriendRequests(params.id));
+        responseData = db.getFriendRequests(params.id);
+        break;
       case "GET_SENT_REQUESTS":
-        return res(db.getSentRequests(params.id));
+        responseData = db.getSentRequests(params.id);
+        break;
       case "DELETE_FRIEND_REQUEST":
-        return res(db.deleteFriendRequest(params.sender_id, params.receiver_id));
+        responseData = db.deleteFriendRequest(params.sender_id, params.receiver_id);
+        break;
       case "REMOVE_FRIEND":
-        return res(db.removeFriend(params.user_id, params.friend_id));
+        responseData = db.removeFriend(params.user_id, params.friend_id);
+        break;
 
       // --- NOTIFICATIONS ---
       case "GET_NOTIFICATIONS":
-        return res(db.getNotifications(params.id));
+        responseData = db.getNotifications(params.id);
+        break;
       case "ADD_NOTIFICATION":
-        return res(db.addRow(CONFIG.SHEETS.NOTIFICATIONS, params));
+        responseData = db.addRow(CONFIG.SHEETS.NOTIFICATIONS, params);
+        break;
       case "DELETE_NOTIFICATION":
-        return res(db.deleteRow(CONFIG.SHEETS.NOTIFICATIONS, "id", params.id));
+        responseData = db.deleteRow(CONFIG.SHEETS.NOTIFICATIONS, "id", params.id);
+        break;
 
       default:
-        return res({ success: false, msg: "Action not found: " + action });
+        responseData = { success: false, msg: "Action not found: " + action };
     }
+
+    // Release lock before sending response
+    lock.releaseLock();
+    return res(responseData);
+
   } catch (err) {
+    if (lock.hasLock()) lock.releaseLock();
     return res({ success: false, msg: err.toString(), stack: err.stack });
   }
 }
 
-// --- DATABASE ENGINE (Optimized) ---
 class Database {
   constructor() {
     this.ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -126,8 +156,6 @@ class Database {
     this.rowCache[sheetName] = rows;
     return rows;
   }
-
-  // --- Core Auth Logic ---
 
   login(identifier, password) {
     const users = this.getRows(CONFIG.SHEETS.USERS);
@@ -166,8 +194,6 @@ class Database {
     return null;
   }
 
-  // --- Optimized Posts (with JOIN) ---
-
   getPosts() {
     const posts = this.getRows(CONFIG.SHEETS.POSTS);
     const users = this.getRows(CONFIG.SHEETS.USERS);
@@ -175,7 +201,6 @@ class Database {
     users.forEach(u => userMap[String(u.id)] = { username: u.username, avatar: u.avatar });
 
     return posts.map(p => {
-      // Speed Optimization: Backend injection of profile data
       p.profiles = userMap[String(p.user_id)] || { username: p.username, avatar: p.avatar };
       return p;
     }).reverse();
@@ -185,8 +210,6 @@ class Database {
     const posts = this.getPosts();
     return posts.filter(p => String(p.user_id) === String(userId));
   }
-
-  // --- Optimized Friend System ---
 
   addFriendRequest(senderId, receiverId) {
     const reqs = this.getRows(CONFIG.SHEETS.FRIEND_REQS);
@@ -266,7 +289,6 @@ class Database {
     return reqs
       .filter(r => String(r.receiver_id) === String(id) && r.status === "pending")
       .map(r => {
-        // Enriched request with sender profile to save frontend calls
         r.sender_profile = userMap[String(r.sender_id)] || { username: "Unknown" };
         return r;
       });
@@ -302,8 +324,6 @@ class Database {
     return { success: true };
   }
 
-  // --- Notifications Logic ---
-
   getNotifications(id) {
     const rows = this.getRows(CONFIG.SHEETS.NOTIFICATIONS);
     const users = this.getRows(CONFIG.SHEETS.USERS);
@@ -318,8 +338,6 @@ class Database {
       }).reverse().slice(0, 30);
   }
 
-  // --- CRUD Engine (Optimized & Robust) ---
-
   addRow(sheetName, obj) {
     const sheet = this.getSheet(sheetName);
     const headers = sheet.getDataRange().getValues()[0];
@@ -328,6 +346,8 @@ class Database {
       return (val !== null && typeof val === 'object') ? JSON.stringify(val) : val;
     });
     sheet.appendRow(row);
+    // Force spreadsheet flush to ensure immediate write
+    SpreadsheetApp.flush();
     return { success: true };
   }
 
@@ -343,10 +363,11 @@ class Database {
           return (val !== null && typeof val === 'object') ? JSON.stringify(val) : val;
         });
         sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
-        return true;
+        SpreadsheetApp.flush();
+        return { success: true };
       }
     }
-    return false;
+    return { success: false, msg: "Row not found" };
   }
 
   deleteRow(sheetName, key, value) {
@@ -359,6 +380,7 @@ class Database {
         sheet.deleteRow(i + 1);
       }
     }
+    SpreadsheetApp.flush();
     return { success: true };
   }
 }

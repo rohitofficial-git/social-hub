@@ -3,7 +3,11 @@ const Storage = {
     postsCache: null,
     usersCache: null,
     cacheTime: 0,
-    pendingLikes: {}, // { postId: { likes: N, liked_by: [], expiry: timestamp } }
+    pendingLikes: JSON.parse(localStorage.getItem('sh_pending_likes') || '{}'),
+
+    savePendingLikes() {
+        localStorage.setItem('sh_pending_likes', JSON.stringify(this.pendingLikes));
+    },
 
     async callAPI(action, data = {}, method = "GET") {
         try {
@@ -73,6 +77,7 @@ const Storage = {
         Object.keys(this.pendingLikes).forEach(id => {
             if (this.pendingLikes[id].expiry < now) delete this.pendingLikes[id];
         });
+        this.savePendingLikes();
 
         return (Array.isArray(posts) ? posts : []).map(p => {
             if (typeof p.liked_by === 'string') {
@@ -135,6 +140,7 @@ const Storage = {
                 liked_by: updates.liked_by,
                 expiry: Date.now() + 60000
             };
+            this.savePendingLikes();
         }
 
         // 2. Update memory cache
