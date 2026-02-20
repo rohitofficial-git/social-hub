@@ -78,6 +78,8 @@ const Storage = {
                 try { p.liked_by = JSON.parse(p.liked_by); } catch (e) { p.liked_by = []; }
             }
             if (!Array.isArray(p.liked_by)) p.liked_by = [];
+            // Ensure likes is always a number to prevent "NaN" in UI
+            p.likes = parseInt(p.likes) || 0;
             return p;
         });
     },

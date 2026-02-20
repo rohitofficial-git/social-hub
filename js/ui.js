@@ -109,21 +109,34 @@ const UI = {
 
     async handleLike(post, button, countEl) {
         const currentUser = Storage.getCurrentUser();
+        if (!currentUser) return;
+
         if (!post.liked_by) post.liked_by = [];
 
-        const isLiked = post.liked_by.includes(currentUser.id);
+        // Use String() for ID comparison to ensure consistency
+        const currentId = String(currentUser.id);
+        const isLiked = post.liked_by.map(String).includes(currentId);
 
-        // --- Optimistic UI Update ---
-        const newLikes = isLiked ? Math.max(0, (post.likes || 1) - 1) : (post.likes || 0) + 1;
-        const newLikedBy = isLiked
-            ? post.liked_by.filter(id => id !== currentUser.id)
-            : [...post.liked_by, currentUser.id];
+        // --- Toggle Logic ---
+        let newLikedBy;
+        let newLikes;
 
-        // Update UI immediately
-        button.classList.toggle('liked', !isLiked);
+        if (isLiked) {
+            // Remove like
+            newLikedBy = post.liked_by.filter(id => String(id) !== currentId);
+            newLikes = Math.max(0, (parseInt(post.likes) || 1) - 1);
+            button.classList.remove('liked');
+        } else {
+            // Add like
+            newLikedBy = [...post.liked_by, currentId];
+            newLikes = (parseInt(post.likes) || 0) + 1;
+            button.classList.add('liked');
+        }
+
+        // Update UI immediately (Flash Fast)
         countEl.textContent = `${newLikes} likes`;
 
-        // Update local object
+        // Update local object state
         post.likes = newLikes;
         post.liked_by = newLikedBy;
 
@@ -135,11 +148,9 @@ const UI = {
             });
         } catch (err) {
             console.error('Like error:', err);
-            // Revert on failure
-            this.showToast('Cloud sync failed. Reverting like...');
-            button.classList.toggle('liked', isLiked);
-            post.likes = isLiked ? (post.likes + 1) : Math.max(0, post.likes - 1);
-            countEl.textContent = `${post.likes} likes`;
+            this.showToast('Could not sync like to cloud.');
+            // Note: We don't revert here to keep the "Flash Fast" feel, 
+            // the next background sync will fix it if the server failed.
         }
     },
 

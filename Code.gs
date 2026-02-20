@@ -291,12 +291,16 @@ class Database {
     return { success: true };
   }
 
-  // --- CRUD Engine ---
+  // --- CRUD Engine (Optimized & Robust) ---
 
   addRow(sheetName, obj) {
     const sheet = this.getSheet(sheetName);
     const headers = sheet.getDataRange().getValues()[0];
-    const row = headers.map(h => obj[h] !== undefined ? obj[h] : "");
+    const row = headers.map(h => {
+      const val = obj[h] !== undefined ? obj[h] : "";
+      // Smart Serialization: Strings/Numbers save normally, Arrays/Objects save as JSON
+      return (val !== null && typeof val === 'object') ? JSON.stringify(val) : val;
+    });
     sheet.appendRow(row);
     return { success: true };
   }
@@ -308,7 +312,10 @@ class Database {
     const colIndex = headers.indexOf(key);
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][colIndex]) === String(value)) {
-        const newRow = headers.map(h => newData[h] !== undefined ? newData[h] : data[i][headers.indexOf(h)]);
+        const newRow = headers.map(h => {
+          const val = newData[h] !== undefined ? newData[h] : data[i][headers.indexOf(h)];
+          return (val !== null && typeof val === 'object') ? JSON.stringify(val) : val;
+        });
         sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
         return true;
       }
