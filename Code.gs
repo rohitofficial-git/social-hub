@@ -37,6 +37,15 @@ function handleRequest(e) {
       case "GET_USERS":
         return res(db.getRows(CONFIG.SHEETS.USERS).map(u => { delete u.password; return u; }));
 
+      // --- MEGA SYNC (Flash Fast Efficiency) ---
+      case "MEGA_SYNC":
+        return res({
+          posts: db.getPosts().slice(0, 50), 
+          users: db.getRows(CONFIG.SHEETS.USERS).map(u => ({ id: u.id, username: u.username, avatar: u.avatar })),
+          requests: params.user_id ? db.getFriendRequests(params.user_id) : [],
+          server_time: new Date().toISOString()
+        });
+
       // --- POSTS ---
       case "GET_ALL_POSTS":
         return res(db.getPosts());

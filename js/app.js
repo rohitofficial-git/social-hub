@@ -6,12 +6,14 @@ const App = {
             console.log('SocialHub: Initializing...');
             this.bindEvents();
 
-            // 1. Initial Route
+            // 1. Initial Route (Loads from local cache instantly)
             this.route();
 
-            // 2. Background sync (Every 60 seconds)
+            // 2. High Priority Sync (Immediately after load)
             this.syncData();
-            setInterval(() => this.syncData(), 60000);
+
+            // 3. Background sync (Every 30 seconds for real-time feel)
+            setInterval(() => this.syncData(), 30000);
         } catch (error) {
             console.error('Initialization error:', error);
         }
@@ -19,16 +21,20 @@ const App = {
 
     async syncData() {
         try {
-            await this.refreshSession();
-            await this.refreshUsers();
-            this.updateBadge();
+            // Mega Sync bundles posts, users, and requests in ONE request
+            const success = await Storage.megaSync();
+            if (success) {
+                await this.refreshSession();
+                this.updateBadge();
+                this.allUsers = await Storage.getAllUsers();
 
-            // Refresh current view SILENTLY if home or profile to avoid flicker
-            const hash = window.location.hash.substring(1) || 'home';
-            if (hash === 'home') this.showHome(true);
-            if (hash.startsWith('profile')) {
-                const params = new URLSearchParams(hash.split('?')[1]);
-                this.showProfile(params.get('id'), true);
+                // Silently refresh current view with new data
+                const hash = window.location.hash.substring(1) || 'home';
+                if (hash === 'home') this.showHome(true);
+                if (hash.startsWith('profile')) {
+                    const params = new URLSearchParams(hash.split('?')[1]);
+                    this.showProfile(params.get('id'), true);
+                }
             }
         } catch (e) {
             console.warn('Sync failed:', e);
