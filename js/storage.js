@@ -3,6 +3,7 @@ const Storage = {
     postsCache: null,
     usersCache: null,
     cacheTime: 0,
+    pendingLikes: {}, // { postId: { likes: N, liked_by: [], expiry: timestamp } }
 
     async callAPI(action, data = {}, method = "GET") {
         try {
@@ -54,15 +55,6 @@ const Storage = {
         return false;
     },
 
-    async getProfile(userId) {
-        if (!userId) return null;
-        if (this.profileCache[userId]) return this.profileCache[userId];
-        const user = await this.callAPI("GET_PROFILE", { id: userId });
-        const fixed = this.fixUserData(user);
-        if (fixed) this.profileCache[userId] = fixed;
-        return fixed;
-    },
-
     fixUserData(user) {
         if (!user || typeof user !== 'object' || !user.id) return null;
         if (typeof user.friends === 'string') {
@@ -73,6 +65,12 @@ const Storage = {
     },
 
     fixPostsData(posts) {
+        const now = Date.now();
+        // Clean up expired pending likes
+        Object.keys(this.pendingLikes).forEach(id => {
+            if (this.pendingLikes[id].expiry < now) delete this.pendingLikes[id];
+        });
+
         return (Array.isArray(posts) ? posts : []).map(p => {
             if (typeof p.liked_by === 'string') {
                 try { p.liked_by = JSON.parse(p.liked_by); } catch (e) { p.liked_by = []; }
@@ -80,8 +78,82 @@ const Storage = {
             if (!Array.isArray(p.liked_by)) p.liked_by = [];
             // Ensure likes is always a number to prevent "NaN" in UI
             p.likes = parseInt(p.likes) || 0;
+
+            // --- State Lock Protection ---
+            // If we have a fresh local update, IGNORE the server data for this post
+            if (this.pendingLikes[p.id]) {
+                p.likes = this.pendingLikes[p.id].likes;
+                p.liked_by = this.pendingLikes[p.id].liked_by;
+            }
+
             return p;
         });
+    },
+
+    async getPosts(force = false) {
+        const now = Date.now();
+        if (!force && this.postsCache && (now - this.cacheTime < 30000)) return this.postsCache;
+
+        // Flash Load: Return cached posts instantly
+        const cached = localStorage.getItem('sh_cache_posts');
+        if (!force && cached && !this.postsCache) {
+            this.postsCache = this.fixPostsData(JSON.parse(cached));
+            return this.postsCache;
+        }
+
+        const res = await this.callAPI("GET_ALL_POSTS");
+        this.postsCache = this.fixPostsData(res);
+        if (this.postsCache && this.postsCache.length > 0) {
+            this.cacheTime = now;
+            localStorage.setItem('sh_cache_posts', JSON.stringify(this.postsCache));
+        }
+        return this.postsCache;
+    },
+
+    async getUserPosts(userId) {
+        const res = await this.callAPI("GET_USER_POSTS", { user_id: userId });
+        const freshPosts = this.fixPostsData(res);
+
+        // Optimize: If these posts are also in our main cache, update them there too
+        if (this.postsCache) {
+            freshPosts.forEach(fp => {
+                const idx = this.postsCache.findIndex(p => p.id === fp.id);
+                if (idx !== -1) this.postsCache[idx] = fp;
+            });
+        }
+        return freshPosts;
+    },
+
+    async updatePost(postId, updates) {
+        // 1. Lock state locally for 60 seconds to prevent sync overwrite
+        if (updates.likes !== undefined) {
+            this.pendingLikes[postId] = {
+                likes: updates.likes,
+                liked_by: updates.liked_by,
+                expiry: Date.now() + 60000
+            };
+        }
+
+        // 2. Update memory cache
+        if (this.postsCache) {
+            const p = this.postsCache.find(post => post.id === postId);
+            if (p) {
+                Object.assign(p, updates);
+                localStorage.setItem('sh_cache_posts', JSON.stringify(this.postsCache));
+            }
+        }
+
+        // 3. Send to server
+        return await this.callAPI("UPDATE_POST", { id: postId, ...updates }, "POST");
+    },
+
+    async getProfile(userId) {
+        if (!userId) return null;
+        if (this.profileCache[userId]) return this.profileCache[userId];
+        const user = await this.callAPI("GET_PROFILE", { id: userId });
+        const fixed = this.fixUserData(user);
+        if (fixed) this.profileCache[userId] = fixed;
+        return fixed;
     },
 
     async getAllUsers(force = false) {
@@ -105,49 +177,12 @@ const Storage = {
         return this.usersCache;
     },
 
-    async getPosts(force = false) {
-        const now = Date.now();
-        if (!force && this.postsCache && (now - this.cacheTime < 30000)) return this.postsCache;
-
-        // Flash Load: Return cached posts instantly
-        const cached = localStorage.getItem('sh_cache_posts');
-        if (!force && cached && !this.postsCache) {
-            this.postsCache = JSON.parse(cached);
-            return this.postsCache;
-        }
-
-        const res = await this.callAPI("GET_ALL_POSTS");
-        this.postsCache = this.fixPostsData(res);
-        if (this.postsCache.length > 0) {
-            this.cacheTime = now;
-            localStorage.setItem('sh_cache_posts', JSON.stringify(this.postsCache));
-        }
-        return this.postsCache;
-    },
-
-    async getUserPosts(userId) {
-        const res = await this.callAPI("GET_USER_POSTS", { user_id: userId });
-        return this.fixPostsData(res);
-    },
-
     async savePost(post) {
         return await this.callAPI("ADD_POST", post, "POST");
     },
 
     async deletePost(postId) {
         return await this.callAPI("DELETE_POST", { id: postId }, "POST");
-    },
-
-    async updatePost(postId, updates) {
-        // Update local cache optimistically
-        if (this.postsCache) {
-            const p = this.postsCache.find(post => post.id === postId);
-            if (p) {
-                Object.assign(p, updates);
-                localStorage.setItem('sh_cache_posts', JSON.stringify(this.postsCache));
-            }
-        }
-        return await this.callAPI("UPDATE_POST", { id: postId, ...updates }, "POST");
     },
 
     // --- Friend System ---
