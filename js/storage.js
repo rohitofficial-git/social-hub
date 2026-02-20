@@ -49,6 +49,9 @@ const Storage = {
             if (res.requests) {
                 localStorage.setItem('sh_cache_requests', JSON.stringify(res.requests));
             }
+            if (res.notifications) {
+                localStorage.setItem('sh_cache_notifications', JSON.stringify(res.notifications));
+            }
             this.cacheTime = Date.now();
             return true;
         }
@@ -193,6 +196,27 @@ const Storage = {
         const data = Array.isArray(res) ? res : [];
         localStorage.setItem('sh_cache_requests', JSON.stringify(data));
         return data;
+    },
+
+    async getNotifications(userId) {
+        const cached = localStorage.getItem('sh_cache_notifications');
+        if (cached) return JSON.parse(cached);
+        const res = await this.callAPI("GET_NOTIFICATIONS", { id: userId });
+        const data = Array.isArray(res) ? res : [];
+        localStorage.setItem('sh_cache_notifications', JSON.stringify(data));
+        return data;
+    },
+
+    async addNotification(userId, senderId, type, postId, message) {
+        return await this.callAPI("ADD_NOTIFICATION", {
+            id: 'n_' + Date.now(),
+            user_id: userId,
+            sender_id: senderId,
+            type: type,
+            post_id: postId,
+            message: message,
+            created_at: new Date().toISOString()
+        }, "POST");
     },
 
     async getSentRequests(userId) {

@@ -4,7 +4,8 @@ const CONFIG = {
   SHEETS: {
     USERS: "users",
     POSTS: "posts",
-    FRIEND_REQS: "friend_requests"
+    FRIEND_REQS: "friend_requests",
+    NOTIFICATIONS: "notifications"
   }
 };
 
@@ -43,6 +44,7 @@ function handleRequest(e) {
           posts: db.getPosts().slice(0, 50), 
           users: db.getRows(CONFIG.SHEETS.USERS).map(u => ({ id: u.id, username: u.username, avatar: u.avatar })),
           requests: params.user_id ? db.getFriendRequests(params.user_id) : [],
+          notifications: params.user_id ? db.getNotifications(params.user_id) : [],
           server_time: new Date().toISOString()
         });
 
@@ -72,6 +74,14 @@ function handleRequest(e) {
       case "REMOVE_FRIEND":
         return res(db.removeFriend(params.user_id, params.friend_id));
 
+      // --- NOTIFICATIONS ---
+      case "GET_NOTIFICATIONS":
+        return res(db.getNotifications(params.id));
+      case "ADD_NOTIFICATION":
+        return res(db.addRow(CONFIG.SHEETS.NOTIFICATIONS, params));
+      case "DELETE_NOTIFICATION":
+        return res(db.deleteRow(CONFIG.SHEETS.NOTIFICATIONS, "id", params.id));
+
       default:
         return res({ success: false, msg: "Action not found: " + action });
     }
@@ -96,6 +106,7 @@ class Database {
         if (name === CONFIG.SHEETS.USERS) this.sheetCache[name].appendRow(["id", "username", "email", "password", "avatar", "bio", "friends", "created_at"]);
         if (name === CONFIG.SHEETS.POSTS) this.sheetCache[name].appendRow(["id", "user_id", "username", "avatar", "image", "caption", "likes", "liked_by", "visibility", "created_at"]);
         if (name === CONFIG.SHEETS.FRIEND_REQS) this.sheetCache[name].appendRow(["id", "sender_id", "receiver_id", "status", "created_at"]);
+        if (name === CONFIG.SHEETS.NOTIFICATIONS) this.sheetCache[name].appendRow(["id", "user_id", "sender_id", "type", "post_id", "message", "created_at"]);
       }
     }
     return this.sheetCache[name];
@@ -291,6 +302,22 @@ class Database {
     return { success: true };
   }
 
+  // --- Notifications Logic ---
+
+  getNotifications(id) {
+    const rows = this.getRows(CONFIG.SHEETS.NOTIFICATIONS);
+    const users = this.getRows(CONFIG.SHEETS.USERS);
+    const userMap = {};
+    users.forEach(u => userMap[String(u.id)] = { username: u.username, avatar: u.avatar });
+
+    return rows
+      .filter(n => String(n.user_id) === String(id))
+      .map(n => {
+        n.sender_profile = userMap[String(n.sender_id)] || { username: "Someone" };
+        return n;
+      }).reverse().slice(0, 30);
+  }
+
   // --- CRUD Engine (Optimized & Robust) ---
 
   addRow(sheetName, obj) {
@@ -298,7 +325,6 @@ class Database {
     const headers = sheet.getDataRange().getValues()[0];
     const row = headers.map(h => {
       const val = obj[h] !== undefined ? obj[h] : "";
-      // Smart Serialization: Strings/Numbers save normally, Arrays/Objects save as JSON
       return (val !== null && typeof val === 'object') ? JSON.stringify(val) : val;
     });
     sheet.appendRow(row);

@@ -146,11 +146,20 @@ const UI = {
                 likes: newLikes,
                 liked_by: newLikedBy
             });
+
+            // ADD NOTIFICATION: If liked (not unliked) and not our own post
+            if (!isLiked && String(post.user_id) !== currentId) {
+                await Storage.addNotification(
+                    post.user_id,
+                    currentId,
+                    'like',
+                    post.id,
+                    `liked your post: "${post.caption.substring(0, 20)}..."`
+                );
+            }
         } catch (err) {
             console.error('Like error:', err);
             this.showToast('Could not sync like to cloud.');
-            // Note: We don't revert here to keep the "Flash Fast" feel, 
-            // the next background sync will fix it if the server failed.
         }
     },
 

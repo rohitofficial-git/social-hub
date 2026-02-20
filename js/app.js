@@ -72,10 +72,16 @@ const App = {
     async updateBadge() {
         const user = Storage.getCurrentUser();
         if (!user) return;
-        const requests = await Storage.getFriendRequests(user.id);
+        const [requests, notifications] = await Promise.all([
+            Storage.getFriendRequests(user.id),
+            Storage.getNotifications(user.id)
+        ]);
+
         const badge = document.getElementById('request-badge');
-        if (requests.length > 0) {
-            badge.textContent = requests.length;
+        const total = requests.length + notifications.length;
+
+        if (total > 0) {
+            badge.textContent = total;
             badge.classList.remove('hidden');
         } else {
             badge.classList.add('hidden');
@@ -535,50 +541,80 @@ const App = {
         this.showLoader(view);
         try {
             const currentUser = Storage.getCurrentUser();
-            // The new backend returns enriched requests with 'sender_profile' included! 
-            // This avoids N separate API calls for N requests.
-            const reqs = await Storage.getFriendRequests(currentUser.id);
+            const [reqs, notifs] = await Promise.all([
+                Storage.getFriendRequests(currentUser.id),
+                Storage.getNotifications(currentUser.id)
+            ]);
 
             view.innerHTML = `
                 <div class="card form-card" style="margin-bottom:2rem">
-                    <h1 style="font-size:1.75rem; font-weight:800">Friend Requests</h1>
+                    <h1 style="font-size:1.75rem; font-weight:800">Notifications</h1>
                 </div>
-                <ul id="requests-list" style="list-style:none; padding:0"></ul>
+                <div id="notifications-combined-list"></div>
             `;
-            const list = view.querySelector('#requests-list');
+            const list = view.querySelector('#notifications-combined-list');
 
-            if (reqs.length === 0) {
-                list.innerHTML = '<p style="text-align:center; color:var(--text-muted)">No pending requests.</p>';
-            } else {
-                for (const req of reqs) {
-                    const sender = req.sender_profile; // Use the enriched data from backend!
-
-                    const item = document.createElement('li');
-                    item.className = 'request-item card';
-                    item.style.marginBottom = '1rem';
-                    item.innerHTML = `
-                        <div class="request-user" style="display:flex; align-items:center; gap:1rem">
-                            <img src="${sender.avatar || 'https://via.placeholder.com/50'}" class="user-item-avatar" style="width:50px; height:50px; border-radius:50%">
-                            <div class="user-item-name" style="font-weight:700">@${sender.username}</div>
-                        </div>
-                        <div class="request-actions" style="margin-top:1rem; display:flex; gap:0.5rem">
-                            <button class="btn btn-primary btn-sm btn-accept" style="flex:1">Accept</button>
-                            <button class="btn btn-outline btn-sm btn-ignore" style="flex:1">Ignore</button>
-                        </div>
-                    `;
-                    item.querySelector('.btn-accept').onclick = async () => {
-                        await this.handleFriendAction('accept', currentUser.id, req.sender_id);
-                        this.showRequests();
-                    };
-                    item.querySelector('.btn-ignore').onclick = async () => {
-                        await Storage.deleteFriendRequest(req.sender_id, currentUser.id);
-                        this.showRequests();
-                    };
-                    list.appendChild(item);
-                }
+            if (reqs.length === 0 && notifs.length === 0) {
+                list.innerHTML = '<p style="text-align:center; color:var(--text-muted)">No new notifications.</p>';
+                return;
             }
+
+            // Render Friend Requests
+            reqs.forEach(req => {
+                const sender = req.sender_profile;
+                const item = document.createElement('div');
+                item.className = 'request-item card';
+                item.style.marginBottom = '1rem';
+                item.innerHTML = `
+                    <div class="request-user" style="display:flex; align-items:center; gap:1rem">
+                        <img src="${sender.avatar || 'https://via.placeholder.com/50'}" class="user-item-avatar" style="width:40px; height:40px; border-radius:50%">
+                        <div class="user-item-name" style="font-weight:700">@${sender.username} sent a friend request</div>
+                    </div>
+                    <div class="request-actions" style="margin-top:1rem; display:flex; gap:0.5rem">
+                        <button class="btn btn-primary btn-sm btn-accept" style="flex:1">Accept</button>
+                        <button class="btn btn-outline btn-sm btn-ignore" style="flex:1">Ignore</button>
+                    </div>
+                `;
+                item.querySelector('.btn-accept').onclick = async () => {
+                    await this.handleFriendAction('accept', currentUser.id, req.sender_id);
+                    this.showRequests();
+                };
+                item.querySelector('.btn-ignore').onclick = async () => {
+                    await Storage.deleteFriendRequest(req.sender_id, currentUser.id);
+                    this.showRequests();
+                };
+                list.appendChild(item);
+            });
+
+            // Render Like Notifications
+            notifs.forEach(n => {
+                const sender = n.sender_profile;
+                const item = document.createElement('div');
+                item.className = 'notification-item card';
+                item.style.marginBottom = '1rem';
+                item.style.display = 'flex';
+                item.style.alignItems = 'center';
+                item.style.gap = '1rem';
+                item.style.padding = '1rem';
+                item.innerHTML = `
+                    <img src="${sender.avatar || 'https://via.placeholder.com/50'}" style="width:40px; height:40px; border-radius:50%">
+                    <div style="flex:1">
+                        <span style="font-weight:700">@${sender.username}</span> ${n.message}
+                        <div style="font-size:0.75rem; color:var(--text-muted)">${UI.formatDate(n.created_at)}</div>
+                    </div>
+                `;
+                item.onclick = () => {
+                    if (n.post_id) {
+                        // In a real app, we'd scroll to post. For now, go to profile
+                        this.navigate(`profile?id=${currentUser.id}`);
+                    }
+                };
+                list.appendChild(item);
+            });
+
         } catch (e) {
-            view.innerHTML = '<p>Error loading requests.</p>';
+            console.error("Requests view error:", e);
+            view.innerHTML = '<p>Error loading notifications.</p>';
         }
     },
 
