@@ -1,5 +1,8 @@
 const Storage = {
     profileCache: {},
+    postsCache: null,
+    usersCache: null,
+    cacheTime: 0,
 
     // Hybrid API: Uses GET for small data, POST for large data (photos)
     async callAPI(action, data = {}, method = "GET") {
@@ -8,8 +11,7 @@ const Storage = {
                 const params = new URLSearchParams({ action, ...data });
                 const res = await fetch(`${API_URL}?${params.toString()}`);
                 if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
-                const json = await res.json();
-                return json;
+                return await res.json();
             } else {
                 const res = await fetch(`${API_URL}`, {
                     method: "POST",
@@ -42,13 +44,36 @@ const Storage = {
         return user;
     },
 
-    async getAllUsers() {
+    async getAllUsers(force = false) {
+        const now = Date.now();
+        if (!force && this.usersCache && (now - this.cacheTime < 30000)) return this.usersCache;
+
         const res = await this.callAPI("GET_USERS");
-        return Array.isArray(res) ? res : [];
+        this.usersCache = Array.isArray(res) ? res : [];
+        if (this.usersCache.length > 0) this.cacheTime = now;
+        return this.usersCache;
     },
 
-    async getPosts() {
+    async getPosts(force = false) {
+        const now = Date.now();
+        if (!force && this.postsCache && (now - this.cacheTime < 30000)) return this.postsCache;
+
         const res = await this.callAPI("GET_ALL_POSTS");
+        const posts = Array.isArray(res) ? res : [];
+        this.postsCache = posts.map(p => {
+            if (typeof p.liked_by === 'string') {
+                try { p.liked_by = JSON.parse(p.liked_by); } catch (e) { p.liked_by = []; }
+            }
+            if (!Array.isArray(p.liked_by)) p.liked_by = [];
+            return p;
+        });
+        if (this.postsCache.length > 0) this.cacheTime = now;
+        return this.postsCache;
+    },
+
+    async getUserPosts(userId) {
+        // We fetch fresh for specific user views for accuracy
+        const res = await this.callAPI("GET_USER_POSTS", { user_id: userId });
         const posts = Array.isArray(res) ? res : [];
         return posts.map(p => {
             if (typeof p.liked_by === 'string') {
@@ -59,20 +84,22 @@ const Storage = {
         });
     },
 
-    async getUserPosts(userId) {
-        const res = await this.callAPI("GET_USER_POSTS", { user_id: userId });
-        return Array.isArray(res) ? res : [];
-    },
-
     async savePost(post) {
+        this.postsCache = null; // Clear cache
         return await this.callAPI("ADD_POST", post, "POST");
     },
 
     async deletePost(postId) {
+        this.postsCache = null;
         return await this.callAPI("DELETE_POST", { id: postId }, "POST");
     },
 
     async updatePost(postId, updates) {
+        // Update local cache optimistically if it exists
+        if (this.postsCache) {
+            const p = this.postsCache.find(post => post.id === postId);
+            if (p) Object.assign(p, updates);
+        }
         return await this.callAPI("UPDATE_POST", { id: postId, ...updates }, "POST");
     },
 
@@ -92,6 +119,8 @@ const Storage = {
     },
 
     async acceptFriendRequest(currentUserId, targetUserId) {
+        this.profileCache = {}; // Reset profile cache as friends lists changed
+        this.usersCache = null;
         return await this.callAPI("ACCEPT_FRIEND_REQUEST", { user_id: currentUserId, friend_id: targetUserId }, "POST");
     },
 
@@ -100,6 +129,8 @@ const Storage = {
     },
 
     async removeFriend(currentUserId, targetUserId) {
+        this.profileCache = {};
+        this.usersCache = null;
         return await this.callAPI("REMOVE_FRIEND", { user_id: currentUserId, friend_id: targetUserId }, "POST");
     },
 
@@ -117,5 +148,10 @@ const Storage = {
         localStorage.setItem('socialhub_user', JSON.stringify(user));
     },
 
-    clearCurrentUser() { localStorage.removeItem('socialhub_user'); }
+    clearCurrentUser() {
+        localStorage.removeItem('socialhub_user');
+        this.profileCache = {};
+        this.postsCache = null;
+        this.usersCache = null;
+    }
 };

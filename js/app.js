@@ -9,8 +9,9 @@ const App = {
             // 1. Initial Route
             this.route();
 
-            // 2. Background sync
+            // 2. Background sync (Every 60 seconds)
             this.syncData();
+            setInterval(() => this.syncData(), 60000);
         } catch (error) {
             console.error('Initialization error:', error);
         }
@@ -22,12 +23,12 @@ const App = {
             await this.refreshUsers();
             this.updateBadge();
 
-            // Refresh current view if home or profile
+            // Refresh current view SILENTLY if home or profile to avoid flicker
             const hash = window.location.hash.substring(1) || 'home';
-            if (hash === 'home') this.showHome();
+            if (hash === 'home') this.showHome(true);
             if (hash.startsWith('profile')) {
                 const params = new URLSearchParams(hash.split('?')[1]);
-                this.showProfile(params.get('id'));
+                this.showProfile(params.get('id'), true);
             }
         } catch (e) {
             console.warn('Sync failed:', e);
@@ -245,7 +246,7 @@ const App = {
         };
     },
 
-    async showHome() {
+    async showHome(silent = false) {
         const user = Storage.getCurrentUser();
         if (!user || !user.username) {
             this.showAuth('login');
@@ -257,20 +258,27 @@ const App = {
         const hour = new Date().getHours();
         const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
 
-        view.innerHTML = `
-            <div class="welcome-header">
-                <h1>${greeting}, ${user.username}!</h1>
-                <p>See what's happening in the Hub today.</p>
-            </div>
-            <div class="stories-wrapper" id="home-stories"></div>
-            <div class="feed-header-label">Recent Updates</div>
-            <div class="feed"></div>
-        `;
+        // Update greeting and headers without clearing the whole view
+        if (!silent || !view.querySelector('.feed')) {
+            view.innerHTML = `
+                <div class="welcome-header">
+                    <h1>${greeting}, ${user.username}!</h1>
+                    <p>See what's happening in the Hub today.</p>
+                </div>
+                <div class="stories-wrapper" id="home-stories"></div>
+                <div class="feed-header-label">Recent Updates</div>
+                <div class="feed"></div>
+            `;
+        }
 
         const feed = view.querySelector('.feed');
         const storiesContainer = view.querySelector('#home-stories');
         if (!feed) return;
-        this.showLoader(feed);
+
+        // Only show loader if we don't have existing posts
+        if (!silent && (!feed.children.length || feed.querySelector('.loader-container'))) {
+            this.showLoader(feed);
+        }
 
         try {
             // Safety Check: Ensure allUsers exists
@@ -298,8 +306,21 @@ const App = {
 
             const allPosts = await Storage.getPosts();
             const postsArray = Array.isArray(allPosts) ? allPosts : [];
-            const friends = Array.isArray(user.friends) ? user.friends : [];
-            const filteredPosts = postsArray.filter(p => p && (p.visibility === 'public' || friends.includes(p.user_id) || String(p.user_id) === String(user.id)));
+            const friends = Array.isArray(user.friends) ? user.friends.map(String) : [];
+
+            // Privacy Logic for Home Feed:
+            // 1. Show my own posts
+            // 2. Show public posts from others
+            // 3. Show private posts ONLY if I am friends with the author
+            const filteredPosts = postsArray.filter(p => {
+                if (!p) return false;
+                const authorId = String(p.user_id);
+                const isMe = authorId === String(user.id);
+                const isFriend = friends.includes(authorId);
+                const isPublic = p.visibility === 'public' || !p.visibility;
+
+                return isMe || isPublic || isFriend;
+            });
 
             feed.innerHTML = '';
             if (filteredPosts.length === 0) {
@@ -326,12 +347,15 @@ const App = {
         }
     },
 
-    async showProfile(targetUserId = null) {
+    async showProfile(targetUserId = null, silent = false) {
         const currentUser = Storage.getCurrentUser();
         if (!currentUser) return;
         const view = document.getElementById('view-profile');
         view.classList.remove('hidden');
-        this.showLoader(view);
+
+        if (!silent || !view.children.length) {
+            this.showLoader(view);
+        }
 
         const tid = targetUserId || currentUser.id;
 
@@ -354,9 +378,22 @@ const App = {
             const isRequestSent = sentReqs.some(r => r.receiver_id === tid);
             const receivedRequest = receivedReqs.find(r => r.sender_id === tid);
 
+            const isFriend = (currentUser.friends && currentUser.friends.includes(user.id)) || tid === currentUser.id;
+
             const renderProfileContent = (segment) => {
-                const isFriend = (currentUser.friends && currentUser.friends.includes(user.id)) || tid === currentUser.id;
-                const filteredPosts = allUserPosts.filter(p => (p.visibility === segment) || (segment === 'public' && !p.visibility));
+                // Privacy Logic: Non-friends can only see public segment
+                if (segment === 'private' && !isFriend) {
+                    view.querySelector('.profile-feed').innerHTML = `
+                        <div class="card" style="text-align:center; padding: 3rem 1rem;">
+                            <p style="color:var(--text-muted)">Private posts are only visible to friends.</p>
+                        </div>`;
+                    return;
+                }
+
+                const filteredPosts = allUserPosts.filter(p => {
+                    const postVisibility = p.visibility || 'public';
+                    return postVisibility === segment;
+                });
 
                 view.innerHTML = `
                     <div class="profile-header card">
@@ -378,7 +415,7 @@ const App = {
 
                 const profileFeed = view.querySelector('.profile-feed');
                 if (filteredPosts.length === 0) {
-                    profileFeed.innerHTML = `<div class="card" style="text-align:center; padding: 3rem 1rem; color:var(--text-muted)">No posts here.</div>`;
+                    profileFeed.innerHTML = `<div class="card" style="text-align:center; padding: 3rem 1rem; color:var(--text-muted)">No ${segment} posts yet.</div>`;
                 } else {
                     filteredPosts.forEach(post => profileFeed.appendChild(UI.renderPost(post)));
                 }
@@ -486,37 +523,57 @@ const App = {
         };
     },
 
-    showRequests() {
+    async showRequests() {
         const view = document.getElementById('view-requests');
         view.classList.remove('hidden');
         this.showLoader(view);
-        Storage.getFriendRequests(Storage.getCurrentUser().id).then(reqs => {
+        try {
+            const currentUser = Storage.getCurrentUser();
+            // The new backend returns enriched requests with 'sender_profile' included! 
+            // This avoids N separate API calls for N requests.
+            const reqs = await Storage.getFriendRequests(currentUser.id);
+
             view.innerHTML = `
                 <div class="card form-card" style="margin-bottom:2rem">
                     <h1 style="font-size:1.75rem; font-weight:800">Friend Requests</h1>
                 </div>
-                <div id="requests-list"></div>
+                <ul id="requests-list" style="list-style:none; padding:0"></ul>
             `;
             const list = view.querySelector('#requests-list');
-            if (reqs.length === 0) list.innerHTML = '<p style="text-align:center; color:var(--text-muted)">No pending requests.</p>';
-            else reqs.forEach(req => {
-                const item = document.createElement('div');
-                item.className = 'request-item card';
-                item.innerHTML = `
-                    <div class="request-user">
-                        <img src="${req.profiles.avatar}" class="user-item-avatar">
-                        <div class="user-item-name">${req.profiles.username}</div>
-                    </div>
-                    <div class="request-actions">
-                        <button class="btn btn-primary btn-sm btn-accept" data-id="${req.sender_id}">Accept</button>
-                        <button class="btn btn-outline btn-sm btn-ignore" data-id="${req.sender_id}">Ignore</button>
-                    </div>
-                `;
-                item.querySelector('.btn-accept').onclick = () => this.handleFriendAction('accept', Storage.getCurrentUser().id, req.sender_id).then(() => this.showRequests());
-                item.querySelector('.btn-ignore').onclick = () => Storage.deleteFriendRequest(req.sender_id, Storage.getCurrentUser().id).then(() => this.showRequests());
-                list.appendChild(item);
-            });
-        });
+
+            if (reqs.length === 0) {
+                list.innerHTML = '<p style="text-align:center; color:var(--text-muted)">No pending requests.</p>';
+            } else {
+                for (const req of reqs) {
+                    const sender = req.sender_profile; // Use the enriched data from backend!
+
+                    const item = document.createElement('li');
+                    item.className = 'request-item card';
+                    item.style.marginBottom = '1rem';
+                    item.innerHTML = `
+                        <div class="request-user" style="display:flex; align-items:center; gap:1rem">
+                            <img src="${sender.avatar || 'https://via.placeholder.com/50'}" class="user-item-avatar" style="width:50px; height:50px; border-radius:50%">
+                            <div class="user-item-name" style="font-weight:700">@${sender.username}</div>
+                        </div>
+                        <div class="request-actions" style="margin-top:1rem; display:flex; gap:0.5rem">
+                            <button class="btn btn-primary btn-sm btn-accept" style="flex:1">Accept</button>
+                            <button class="btn btn-outline btn-sm btn-ignore" style="flex:1">Ignore</button>
+                        </div>
+                    `;
+                    item.querySelector('.btn-accept').onclick = async () => {
+                        await this.handleFriendAction('accept', currentUser.id, req.sender_id);
+                        this.showRequests();
+                    };
+                    item.querySelector('.btn-ignore').onclick = async () => {
+                        await Storage.deleteFriendRequest(req.sender_id, currentUser.id);
+                        this.showRequests();
+                    };
+                    list.appendChild(item);
+                }
+            }
+        } catch (e) {
+            view.innerHTML = '<p>Error loading requests.</p>';
+        }
     },
 
     showCreate() {
